@@ -19,10 +19,12 @@ Only the `C:` volume is inspected.
 
 ## Installation
 
-Copy the module folder somewhere on your module path, or import it by path:
+Keep `BitlockerRecoveryTools.psm1` and `BitlockerRecoveryTools.psd1` together in a folder named `BitlockerRecoveryTools`. Put that folder on your module path, or import the manifest by path:
 
 ```powershell
-Import-Module C:\path\to\BitlockerRecoveryTools\BitlockerRecoveryTools.psm1
+Import-Module C:\path\to\BitlockerRecoveryTools\BitlockerRecoveryTools.psd1
+Get-Help Invoke-BitlockerTool -Full
+Get-Module BitlockerRecoveryTools | Format-List Name, Version, Description
 ```
 
 The module locates its own path to load itself into parallel runspaces, so it no longer needs to live at a hardcoded location.
