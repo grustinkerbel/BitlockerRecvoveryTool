@@ -27,27 +27,6 @@ function Write-LogLines {
     catch { Write-Warning "Could not write log file '$($script:LogPath)': $($_.Exception.Message)" }
 }
 
-<#
-.SYNOPSIS
-Writes a timestamped line to the console and the module log file.
-
-.DESCRIPTION
-Intended for use from the main session. Parallel workers return their log lines on the result
-object instead, and Invoke-BitlockerTool writes them. The log path is set by the -LogPath
-parameter of Invoke-BitlockerTool.
-
-.PARAMETER Message
-Text to log.
-
-.PARAMETER Level
-Severity label, such as INFO, WARN or ERROR. Default INFO.
-
-.PARAMETER ComputerName
-Optional computer name to include in the line.
-
-.EXAMPLE
-Write-Log -Message 'Starting' -Level INFO
-#>
 function Write-Log {
     param(
         [string]$Message,
@@ -101,34 +80,6 @@ function New-BitLockerResult {
 # ----------------------------
 # AD: one bulk query -> hashtable[ComputerName] = List of { ID; Created; Password }
 # ----------------------------
-<#
-.SYNOPSIS
-Loads BitLocker recovery objects from Active Directory in a single query.
-
-.DESCRIPTION
-Returns a case-insensitive hashtable keyed by computer name. Each value is a list of objects
-with ID (protector GUID, lower case, no braces), Created (whenCreated) and Password (only
-populated with -IncludePassword). The computer name and protector GUID are parsed from each
-recovery object's distinguished name, so no per-computer AD lookups are needed.
-
-.PARAMETER IncludePassword
-Also retrieve msFVE-RecoveryPassword. Requires read permission on that attribute.
-
-.PARAMETER SearchBase
-Limit the query to an OU or container (distinguished name).
-
-.PARAMETER Server
-Domain controller to query.
-
-.EXAMPLE
-$map = Get-ADBitLockerKeyMap -SearchBase 'OU=Laptops,DC=corp,DC=local'
-$map['LT-001'].ID
-
-Lists the escrowed protector GUIDs for LT-001.
-
-.OUTPUTS
-System.Collections.Hashtable
-#>
 function Get-ADBitLockerKeyMap {
     [CmdletBinding()]
     param(
@@ -230,26 +181,6 @@ function Get-BitLockerSnapshot {
 }
 
 # Standalone convenience wrapper (opens and closes its own session)
-<#
-.SYNOPSIS
-Returns a BitLocker and TPM snapshot for the C: volume of a remote computer.
-
-.DESCRIPTION
-Opens a PSSession, collects protection state, encryption percentage, recovery password
-protectors and TPM state in one round trip, then closes the session.
-
-.PARAMETER ComputerName
-Computer to query.
-
-.PARAMETER IncludePassword
-Include recovery passwords in the Protectors property (plaintext).
-
-.EXAMPLE
-Get-BitLockerStatus -ComputerName LT-001
-
-.OUTPUTS
-PSCustomObject with Protected, Percent, VolumeStatus, Protectors, TpmPresent, TpmReady, Error.
-#>
 function Get-BitLockerStatus {
     [CmdletBinding()]
     param(
@@ -265,59 +196,6 @@ function Get-BitLockerStatus {
 # Per-endpoint worker. Runs inside parallel runspaces; pure function of its inputs:
 # no AD calls, no shared state, returns a result object carrying its own log lines.
 # ----------------------------
-<#
-.SYNOPSIS
-Processes a single computer: connectivity, BitLocker snapshot, optional remediation.
-
-.DESCRIPTION
-Per-computer worker used by Invoke-BitlockerTool inside parallel runspaces. Makes no Active
-Directory calls: the computer's recovery keys are passed in via -ADKeys (from
-Get-ADBitLockerKeyMap). Opens one PSSession, takes one snapshot, and reuses the session for
-enabling BitLocker, removing duplicate protectors and backing up missing keys.
-
-Keys that were backed up are listed in PendingVerifyIds and must be confirmed against AD by
-the caller. This function never writes to the console or log file; log lines are returned on
-the result object's Log property.
-
-.PARAMETER ComputerName
-Computer to process.
-
-.PARAMETER ADKeys
-Recovery key records for this computer from Get-ADBitLockerKeyMap (objects with ID, Created,
-Password).
-
-.PARAMETER IncludeRecoveryKey
-Return recovery passwords (local and AD). Passwords are plaintext.
-
-.PARAMETER AutoEnableBitLocker
-Enable BitLocker if protection is Off, TPM is present and ready, and no recovery password
-protector exists.
-
-.PARAMETER CleanupProtectors
-Remove duplicate recovery password protectors, keeping one that is already escrowed in AD.
-
-.PARAMETER DryRun
-Report only; make no changes on the endpoint.
-
-.PARAMETER SkipPing
-Skip the ICMP check and go straight to WinRM.
-
-.PARAMETER OpenTimeoutSec
-Seconds to wait when opening the WinRM session. Default 10.
-
-.PARAMETER OperationTimeoutSec
-Seconds to wait for each remote operation. Default 60.
-
-.EXAMPLE
-$map = Get-ADBitLockerKeyMap
-Invoke-BitlockerEndpoint -ComputerName LT-001 -ADKeys $map['LT-001'] -DryRun
-
-Reports on one computer without changing anything.
-
-.OUTPUTS
-PSCustomObject. Same shape as Invoke-BitlockerTool output, plus BackupAttempted,
-BackupFailed, PendingVerifyIds and Log.
-#>
 function Invoke-BitlockerEndpoint {
     [CmdletBinding()]
     param(
@@ -493,26 +371,6 @@ function Invoke-BitlockerEndpoint {
 # ----------------------------
 # CSV export helper
 # ----------------------------
-<#
-.SYNOPSIS
-Exports BitLocker result objects to CSV.
-
-.DESCRIPTION
-Flattens array properties into comma-joined strings, normalizes the column set and order, and
-writes the CSV, appending when requested and the file exists.
-
-.PARAMETER Results
-Result objects from Invoke-BitlockerTool.
-
-.PARAMETER Path
-CSV file path.
-
-.PARAMETER Mode
-Append (default) or Overwrite.
-
-.EXAMPLE
-Export-ResultsSafe -Results $results -Path .eport.csv -Mode Overwrite
-#>
 function Export-ResultsSafe {
     param(
         [Parameter(Mandatory)][array]$Results,
@@ -561,6 +419,7 @@ function Export-ResultsSafe {
 # ----------------------------
 # Main entry point
 # ----------------------------
+
 <#
 .SYNOPSIS
 Generates a BitLocker status and recovery key compliance report for Active Directory computers
@@ -655,18 +514,59 @@ Invoke-BitlockerTool -ADOnly -IncludeRecoveryKey
 .EXAMPLE
 Invoke-BitlockerTool -AutoEnableBitLocker -CleanupProtectors -Mode Overwrite -WhatIf
 
-.INPUTS
-None. Computer names come from Active Directory (-Filter) or a text file (-ComputerList).
+.EXAMPLE
+Invoke-BitlockerTool -ComputerList .\queue.txt -OutputPath C:\Reports\BitLocker.csv
 
-.OUTPUTS
-PSCustomObject. One object per computer with: Timestamp, Computer, Online, WinRM, Reported,
-Volume, Protected, Percent, ADRecoveryKeyID, ADRecoveryKeyPassword, LocalKeySource,
-RecoveryKeyID, RecoveryPassword, MachineKeyCount, ADKeyCount, ADVerified, TPMPresent,
-TPMReady, CanEnableBitLocker, ActivatedBitlocker, Error.
-The same data is exported to the CSV at -OutputPath.
+Processes only the computers in queue.txt. Computers that report successfully are commented
+out with a leading # so the next run retries only the remainder.
 
-.LINK
-https://learn.microsoft.com/en-us/powershell/module/bitlocker/
+.EXAMPLE
+Invoke-BitlockerTool -Filter "OperatingSystem -notlike '*Server*'" -SearchBase "OU=Workstations,DC=corp,DC=local" -Server dc01.corp.local -Mode Overwrite
+
+Audits workstations in one OU, sends every AD query to a single domain controller (avoids
+replication lag during escrow verification), and replaces any existing report.
+
+.EXAMPLE
+Invoke-BitlockerTool -SkipPing -ThrottleLimit 100
+
+Skips the ICMP check for networks that block ping and raises the parallel limit. Useful when
+most targets are online and the run is network-bound.
+
+.EXAMPLE
+Invoke-BitlockerTool -ContactedOnly -OutputPath .\Online_Only.csv
+
+Exports only computers that answered ping. Offline computers are still appended to
+NotContacted_Computers.txt next to the CSV.
+
+.EXAMPLE
+$results = Invoke-BitlockerTool -ADOnly
+$results | Where-Object { $_.ADKeyCount -eq 0 } | Select-Object Computer
+
+Lists computers that have no recovery key in AD, without contacting any endpoint.
+
+.EXAMPLE
+$results = Invoke-BitlockerTool -Filter "Name -like 'LT-*'" -WhatIf
+$results | Where-Object { -not $_.ADVerified } | Select-Object Computer, Protected, Error
+
+Report-only run: contacts endpoints but changes nothing. Shows laptops whose keys are not
+confirmed in AD and why.
+
+.EXAMPLE
+Invoke-BitlockerTool -ComputerList .\NotContacted_Computers.txt -Mode Append
+
+Retries computers that were unreachable on an earlier run.
+
+.EXAMPLE
+Invoke-BitlockerTool -Filter "Name -like 'LT-*'" -AutoEnableBitLocker -Confirm:$false -LogPath C:\Logs\BitLocker.log
+
+Enables BitLocker on eligible laptops (TPM present and ready, no recovery protector) and
+backs up their keys to AD without prompting. Writes the log to a custom path.
+
+.EXAMPLE
+Invoke-BitlockerTool -CleanupProtectors -IncludeRecoveryKey -OutputPath C:\Secure\BitLocker_Keys.csv
+
+Removes duplicate recovery protectors and includes recovery passwords in the output. The CSV
+contains plaintext passwords, so store it in a protected location.
 
 .NOTES
 Author: Bill Galway
@@ -676,6 +576,7 @@ Version: 2.0
 Requires: ActiveDirectory module (main session only), BitLocker cmdlets on targets,
 WinRM on targets, PowerShell 7+.
 #>
+
 function Invoke-BitlockerTool {
     [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'AD')]
     param(
